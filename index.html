@@ -1,0 +1,378 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Game Deal Finder</title>
+    <!-- Tailwind CSS for styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Google Fonts: Inter -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        /* Use the Inter font family */
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        /* Simple spinner animation */
+        .loader {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #3498db;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        /* Ensure modal appears above everything */
+        #detailsModal {
+            z-index: 50;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 dark:bg-gray-900 text-gray-900 dark:text-gray-100">
+
+    <div class="container mx-auto p-4 md:p-8 max-w-4xl">
+        <!-- Header Section -->
+        <div class="text-center mb-8">
+            <h1 id="homeButton" class="text-4xl md:text-5xl font-bold text-blue-600 dark:text-blue-400 cursor-pointer hover:opacity-80 transition">Game Deal Finder</h1>
+            <p class="text-gray-600 dark:text-gray-400 mt-2">Find the best prices for your favorite PC games.</p>
+        </div>
+
+        <!-- Search Bar Section with Suggestions Container -->
+        <div class="relative max-w-lg mx-auto mb-8">
+            <div class="flex flex-col sm:flex-row gap-2">
+                <input type="text" id="searchInput" placeholder="Enter a game title (e.g., Cyberpunk 2077)" class="flex-grow p-3 border-2 border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 transition" autocomplete="off">
+                <button id="searchButton" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-6 rounded-lg transition duration-300 ease-in-out transform hover:scale-105">
+                    Search
+                </button>
+            </div>
+            <!-- Suggestions dropdown container -->
+            <div id="suggestions" class="absolute z-10 w-full bg-white dark:bg-gray-700 rounded-b-lg shadow-lg hidden overflow-hidden mt-1"></div>
+        </div>
+
+        <!-- View Title and Sorting Dropdown -->
+        <div id="resultsHeader" class="max-w-4xl mx-auto mb-4 flex justify-between items-center">
+            <h2 id="resultsTitle" class="text-2xl font-bold"></h2>
+            <div id="sortContainer" class="flex items-center">
+                <label for="sortBy" class="mr-2 text-gray-600 dark:text-gray-400">Sort by:</label>
+                <select id="sortBy" name="sort-by" class="p-2 border-2 border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    <option value="DealRating">Deal Rating</option>
+                    <option value="Title">Title</option>
+                    <option value="Savings">Savings</option>
+                    <option value="Price">Price</option>
+                    <option value="Metacritic">Metacritic</option>
+                    <option value="Reviews">Reviews</option>
+                    <option value="Release">Release Date</option>
+                    <option value="Store">Store</option>
+                    <option value="Recent">Recent</option>
+                </select>
+            </div>
+        </div>
+
+        <!-- Loading Spinner -->
+        <div id="loader" class="hidden mx-auto my-8 loader"></div>
+
+        <!-- Message Display Area -->
+        <div id="message" class="text-center text-gray-500 dark:text-gray-400 my-8"></div>
+
+        <!-- Results Section -->
+        <div id="results" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6"></div>
+    </div>
+
+    <!-- Details Modal -->
+    <div id="detailsModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 hidden">
+        <div class="bg-white dark:bg-gray-800 rounded-lg shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+            <div id="modalContent" class="p-6"></div>
+             <div id="modalLoader" class="hidden p-12 flex justify-center items-center">
+                <div class="loader"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // DOM Element References
+        const homeButton = document.getElementById('homeButton');
+        const searchInput = document.getElementById('searchInput');
+        const searchButton = document.getElementById('searchButton');
+        const resultsContainer = document.getElementById('results');
+        const loader = document.getElementById('loader');
+        const messageContainer = document.getElementById('message');
+        const suggestionsContainer = document.getElementById('suggestions');
+        const detailsModal = document.getElementById('detailsModal');
+        const modalContent = document.getElementById('modalContent');
+        const modalLoader = document.getElementById('modalLoader');
+        const resultsTitle = document.getElementById('resultsTitle');
+        const sortContainer = document.getElementById('sortContainer');
+        const sortBySelect = document.getElementById('sortBy');
+
+        // API URLs
+        const API_BASE_URL = 'https://www.cheapshark.com/api/1.0';
+        const REDIRECT_BASE_URL = 'https://www.cheapshark.com/redirect?dealID=';
+
+        // State
+        let debounceTimeout;
+        let storesMap = new Map();
+
+        /**
+         * Fetches all store information once on page load.
+         */
+        const fetchAndMapStores = async () => {
+            try {
+                const response = await fetch(`${API_BASE_URL}/stores`);
+                if (!response.ok) return;
+                const stores = await response.json();
+                stores.forEach(store => storesMap.set(store.storeID, {name: store.storeName, icon: store.images.icon}));
+            } catch (error) {
+                console.error("Error fetching stores:", error);
+            }
+        };
+
+        /**
+         * Fetches the default list of deals, considering the selected sort order.
+         */
+        const fetchDefaultDeals = async () => {
+            sortContainer.classList.remove('hidden');
+            resultsTitle.textContent = 'Top Steam Deals Under $15';
+            loader.classList.remove('hidden');
+            resultsContainer.innerHTML = '';
+            messageContainer.textContent = '';
+
+            const sortBy = sortBySelect.value;
+
+            try {
+                const response = await fetch(`${API_BASE_URL}/deals?storeID=1&upperPrice=15&sortBy=${sortBy}`);
+                if (!response.ok) throw new Error('Failed to fetch default deals.');
+                const deals = await response.json();
+                displayDeals(deals);
+            } catch (error) {
+                console.error("Error fetching default deals:", error);
+                messageContainer.textContent = 'Could not load default deals.';
+            } finally {
+                loader.classList.add('hidden');
+            }
+        };
+
+        /**
+         * Fetches and displays game deals from a search query.
+         */
+        const searchForGames = async () => {
+            suggestionsContainer.classList.add('hidden');
+            const query = searchInput.value.trim();
+            if (!query) return;
+
+            sortContainer.classList.add('hidden'); // Hide sorter for search results
+            resultsTitle.textContent = `Search Results for "${query}"`;
+            resultsContainer.innerHTML = '';
+            messageContainer.textContent = '';
+            loader.classList.remove('hidden');
+
+            try {
+                const response = await fetch(`${API_BASE_URL}/games?title=${encodeURIComponent(query)}`);
+                if (!response.ok) throw new Error(`HTTP error! Status: ${response.status}`);
+                const games = await response.json();
+
+                if (games.length === 0) {
+                    messageContainer.textContent = 'No deals found for that game. Try a different title!';
+                } else {
+                    displayGames(games);
+                }
+            } catch (error) {
+                console.error("Error fetching game deals:", error);
+                messageContainer.textContent = 'Sorry, something went wrong. Please try again later.';
+            } finally {
+                loader.classList.add('hidden');
+            }
+        };
+
+        /**
+         * Fetches game title suggestions for autocomplete.
+         */
+        const fetchSuggestions = async (query) => {
+            if (query.length < 3) return;
+            try {
+                const response = await fetch(`${API_BASE_URL}/games?title=${encodeURIComponent(query)}`);
+                if (!response.ok) return;
+                const games = await response.json();
+                displaySuggestions(games.slice(0, 6));
+            } catch (error) {
+                console.error("Error fetching suggestions:", error);
+            }
+        };
+
+        /**
+         * Displays autocomplete suggestions.
+         */
+        const displaySuggestions = (games) => {
+            suggestionsContainer.innerHTML = '';
+            if (games.length === 0) {
+                suggestionsContainer.classList.add('hidden');
+                return;
+            }
+            suggestionsContainer.classList.remove('hidden');
+            games.forEach(game => {
+                const item = document.createElement('div');
+                item.className = 'p-3 hover:bg-gray-200 dark:hover:bg-gray-600 cursor-pointer border-t border-gray-200 dark:border-gray-600 first:border-t-0';
+                item.textContent = game.external;
+                item.addEventListener('click', () => {
+                    searchInput.value = game.external;
+                    suggestionsContainer.classList.add('hidden');
+                    searchForGames();
+                });
+                suggestionsContainer.appendChild(item);
+            });
+        };
+
+        /**
+         * Displays search results as cards.
+         */
+        const displayGames = (games) => {
+            resultsContainer.innerHTML = '';
+            games.forEach(game => {
+                const gameCard = document.createElement('div');
+                gameCard.className = 'bg-white dark:bg-gray-800 rounded-lg shadow-lg overflow-hidden transform hover:-translate-y-1 transition-transform duration-300 cursor-pointer';
+                gameCard.dataset.gameid = game.gameID;
+                const price = parseFloat(game.cheapest) === 0.00 ? 'Free!' : `$${game.cheapest}`;
+                gameCard.innerHTML = `
+                    <img src="${game.thumb}" alt="${game.external}" class="w-full h-32 object-cover pointer-events-none" onerror="this.onerror=null;this.src='https://placehold.co/300x200/000000/FFFFFF?text=No+Image';">
+                    <div class="p-4 pointer-events-none">
+                        <h3 class="font-bold text-lg truncate" title="${game.external}">${game.external}</h3>
+                        <div class="flex justify-end items-center mt-2">
+                            <div class="text-right">
+                                <p class="text-sm text-gray-500">Best Price</p>
+                                <p class="text-xl font-bold text-green-500">${price}</p>
+                            </div>
+                        </div>
+                    </div>
+                `;
+                resultsContainer.appendChild(gameCard);
+            });
+        };
+
+        /**
+         * Displays a list of deals as cards, including savings.
+         */
+        const displayDeals = (deals) => {
+            resultsContainer.innerHTML = '';
+            deals.forEach(deal => {
+                const dealCard = document.createElement('div');
+                dealCard.className = 'bg-white dark:bg-gray-800 rounded-lg shadow-lg overflow-hidden transform hover:-translate-y-1 transition-transform duration-300 cursor-pointer';
+                dealCard.dataset.gameid = deal.gameID;
+                const savings = Math.round(parseFloat(deal.savings));
+                dealCard.innerHTML = `
+                    <img src="${deal.thumb}" alt="${deal.title}" class="w-full h-32 object-cover pointer-events-none" onerror="this.onerror=null;this.src='https://placehold.co/300x200/000000/FFFFFF?text=No+Image';">
+                    <div class="p-4 pointer-events-none">
+                        <h3 class="font-bold text-lg truncate" title="${deal.title}">${deal.title}</h3>
+                        <div class="flex justify-between items-center mt-2">
+                            ${savings > 0 ? `<span class="bg-red-500 text-white font-bold text-sm py-1 px-2 rounded-md">-${savings}%</span>` : '<span></span>'}
+                            <div class="text-right">
+                                ${savings > 0 ? `<p class="text-sm text-gray-500 line-through">$${deal.normalPrice}</p>` : ''}
+                                <p class="text-xl font-bold text-green-500">$${deal.salePrice}</p>
+                            </div>
+                        </div>
+                    </div>
+                `;
+                resultsContainer.appendChild(dealCard);
+            });
+        };
+
+        /**
+         * Fetches and displays game details in a modal.
+         */
+        const showGameDetails = async (gameID) => {
+            detailsModal.classList.remove('hidden');
+            modalLoader.classList.remove('hidden');
+            modalContent.classList.add('hidden');
+            modalContent.innerHTML = '';
+
+            try {
+                const response = await fetch(`${API_BASE_URL}/games?id=${gameID}`);
+                if (!response.ok) throw new Error('Failed to fetch game details.');
+                const data = await response.json();
+
+                const dealsHtml = data.deals.map(deal => {
+                    const store = storesMap.get(deal.storeID) || { name: 'Unknown Store', icon: '' };
+                    const savings = Math.round(parseFloat(deal.savings));
+                    return `
+                        <a href="${REDIRECT_BASE_URL}${deal.dealID}" target="_blank" rel="noopener noreferrer" class="flex items-center justify-between p-3 bg-gray-100 dark:bg-gray-700 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition">
+                            <div class="flex items-center gap-3">
+                                <img src="https://www.cheapshark.com${store.icon}" alt="${store.name}" class="w-6 h-6">
+                                <span class="font-medium">${store.name}</span>
+                            </div>
+                            <div class="text-right">
+                                <span class="font-bold text-lg text-green-500">$${deal.price}</span>
+                                ${savings > 0 ? `<span class="block text-sm text-red-500">-${savings}%</span>` : ''}
+                            </div>
+                        </a>
+                    `;
+                }).join('');
+
+                modalContent.innerHTML = `
+                    <div class="flex justify-between items-start mb-4">
+                        <h2 class="text-2xl font-bold">${data.info.title}</h2>
+                        <button id="closeModalBtn" class="text-2xl font-bold text-gray-500 hover:text-gray-800 dark:hover:text-gray-200">&times;</button>
+                    </div>
+                    <img src="${data.info.thumb}" alt="${data.info.title}" class="w-full h-48 object-cover rounded-lg mb-4">
+                    <h3 class="text-xl font-semibold mb-3">Available Deals:</h3>
+                    <div class="space-y-2">${dealsHtml}</div>
+                `;
+
+                document.getElementById('closeModalBtn').addEventListener('click', () => detailsModal.classList.add('hidden'));
+
+            } catch (error) {
+                console.error("Error fetching game details:", error);
+                modalContent.innerHTML = `<p>Could not load game details. Please try again.</p>`;
+            } finally {
+                modalLoader.classList.add('hidden');
+                modalContent.classList.remove('hidden');
+            }
+        };
+
+        // --- Event Listeners ---
+        document.addEventListener('DOMContentLoaded', async () => {
+            await fetchAndMapStores();
+            fetchDefaultDeals();
+        });
+
+        searchButton.addEventListener('click', searchForGames);
+        sortBySelect.addEventListener('change', fetchDefaultDeals); // Re-fetch deals on sort change
+        homeButton.addEventListener('click', () => { // Reset view when title is clicked
+            searchInput.value = '';
+            fetchDefaultDeals();
+        });
+        searchInput.addEventListener('keypress', e => e.key === 'Enter' && searchForGames());
+        searchInput.addEventListener('input', () => {
+            clearTimeout(debounceTimeout);
+            const query = searchInput.value.trim();
+            if (query.length < 3) {
+                suggestionsContainer.classList.add('hidden');
+                return;
+            }
+            debounceTimeout = setTimeout(() => fetchSuggestions(query), 300);
+        });
+
+        resultsContainer.addEventListener('click', (event) => {
+            const card = event.target.closest('[data-gameid]');
+            if (card) {
+                showGameDetails(card.dataset.gameid);
+            }
+        });
+
+        detailsModal.addEventListener('click', (event) => {
+            if (event.target === detailsModal) {
+                detailsModal.classList.add('hidden');
+            }
+        });
+
+        document.addEventListener('click', (event) => {
+            if (!searchInput.contains(event.target) && !suggestionsContainer.contains(event.target)) {
+                suggestionsContainer.classList.add('hidden');
+            }
+        });
+    </script>
+</body>
+</html>
