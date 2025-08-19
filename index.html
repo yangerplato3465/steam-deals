@@ -56,8 +56,13 @@
         </div>
 
         <!-- View Title and Sorting Dropdown -->
-        <div id="resultsHeader" class="max-w-4xl mx-auto mb-4 flex justify-between items-center">
-            <h2 id="resultsTitle" class="text-2xl font-bold"></h2>
+        <div id="resultsHeader" class="max-w-4xl mx-auto mb-4 flex flex-col sm:flex-row justify-between items-center gap-4">
+            <div class="flex items-center gap-4">
+                 <h2 id="resultsTitle" class="text-2xl font-bold"></h2>
+                 <button id="backToDealsButton" class="hidden bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 text-sm font-bold py-2 px-4 rounded-lg transition">
+                    &larr; Back to Top Deals
+                 </button>
+            </div>
             <div id="sortContainer" class="flex items-center">
                 <label for="sortBy" class="mr-2 text-gray-600 dark:text-gray-400">Sort by:</label>
                 <select id="sortBy" name="sort-by" class="p-2 border-2 border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
@@ -109,6 +114,7 @@
         const resultsTitle = document.getElementById('resultsTitle');
         const sortContainer = document.getElementById('sortContainer');
         const sortBySelect = document.getElementById('sortBy');
+        const backToDealsButton = document.getElementById('backToDealsButton');
 
         // API URLs
         const API_BASE_URL = 'https://www.cheapshark.com/api/1.0';
@@ -137,6 +143,7 @@
          */
         const fetchDefaultDeals = async () => {
             sortContainer.classList.remove('hidden');
+            backToDealsButton.classList.add('hidden');
             resultsTitle.textContent = 'Top Steam Deals Under $15';
             loader.classList.remove('hidden');
             resultsContainer.innerHTML = '';
@@ -165,7 +172,8 @@
             const query = searchInput.value.trim();
             if (!query) return;
 
-            sortContainer.classList.add('hidden'); // Hide sorter for search results
+            sortContainer.classList.add('hidden');
+            backToDealsButton.classList.remove('hidden');
             resultsTitle.textContent = `Search Results for "${query}"`;
             resultsContainer.innerHTML = '';
             messageContainer.textContent = '';
@@ -237,8 +245,11 @@
                 gameCard.className = 'bg-white dark:bg-gray-800 rounded-lg shadow-lg overflow-hidden transform hover:-translate-y-1 transition-transform duration-300 cursor-pointer';
                 gameCard.dataset.gameid = game.gameID;
                 const price = parseFloat(game.cheapest) === 0.00 ? 'Free!' : `$${game.cheapest}`;
+                const highResThumb = game.thumb.replace('capsule_184x69.jpg', 'header.jpg');
                 gameCard.innerHTML = `
-                    <img src="${game.thumb}" alt="${game.external}" class="w-full h-32 object-cover pointer-events-none" onerror="this.onerror=null;this.src='https://placehold.co/300x200/000000/FFFFFF?text=No+Image';">
+                    <div class="h-32 w-full overflow-hidden rounded-t-lg pointer-events-none">
+                        <img src="${highResThumb}" alt="${game.external}" class="w-full h-full object-cover pointer-events-none" onerror="this.onerror=null;this.src='https://placehold.co/300x200/000000/FFFFFF?text=No+Image';">
+                    </div>
                     <div class="p-4 pointer-events-none">
                         <h3 class="font-bold text-lg truncate" title="${game.external}">${game.external}</h3>
                         <div class="flex justify-end items-center mt-2">
@@ -263,8 +274,11 @@
                 dealCard.className = 'bg-white dark:bg-gray-800 rounded-lg shadow-lg overflow-hidden transform hover:-translate-y-1 transition-transform duration-300 cursor-pointer';
                 dealCard.dataset.gameid = deal.gameID;
                 const savings = Math.round(parseFloat(deal.savings));
+                const highResThumb = deal.thumb.replace('capsule_184x69.jpg', 'header.jpg');
                 dealCard.innerHTML = `
-                    <img src="${deal.thumb}" alt="${deal.title}" class="w-full h-32 object-cover pointer-events-none" onerror="this.onerror=null;this.src='https://placehold.co/300x200/000000/FFFFFF?text=No+Image';">
+                    <div class="h-32 w-full overflow-hidden rounded-t-lg pointer-events-none">
+                        <img src="${highResThumb}" alt="${deal.title}" class="w-full h-26 object-contain bg-black pointer-events-none" onerror="this.onerror=null;this.src='https://placehold.co/300x200/000000/FFFFFF?text=No+Image';">
+                    </div>
                     <div class="p-4 pointer-events-none">
                         <h3 class="font-bold text-lg truncate" title="${deal.title}">${deal.title}</h3>
                         <div class="flex justify-between items-center mt-2">
@@ -332,6 +346,11 @@
             }
         };
 
+        const resetToDefaultView = () => {
+            searchInput.value = '';
+            fetchDefaultDeals();
+        };
+
         // --- Event Listeners ---
         document.addEventListener('DOMContentLoaded', async () => {
             await fetchAndMapStores();
@@ -339,11 +358,9 @@
         });
 
         searchButton.addEventListener('click', searchForGames);
-        sortBySelect.addEventListener('change', fetchDefaultDeals); // Re-fetch deals on sort change
-        homeButton.addEventListener('click', () => { // Reset view when title is clicked
-            searchInput.value = '';
-            fetchDefaultDeals();
-        });
+        sortBySelect.addEventListener('change', fetchDefaultDeals);
+        homeButton.addEventListener('click', resetToDefaultView);
+        backToDealsButton.addEventListener('click', resetToDefaultView);
         searchInput.addEventListener('keypress', e => e.key === 'Enter' && searchForGames());
         searchInput.addEventListener('input', () => {
             clearTimeout(debounceTimeout);
